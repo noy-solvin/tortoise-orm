@@ -1,29 +1,40 @@
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tortoise import Tortoise
 from tortoise.config import AppConfig, ConnectionConfig, TortoiseConfig
 from tortoise.migrations.api import migrate, plan, sqlmigrate
+from tortoise.migrations.executor import MigrationExecutor, MigrationTarget
+
+
+def _cleanup_modules(*app_names: str) -> None:
+    for mod in list(sys.modules):
+        if any(mod == app or mod.startswith(f"{app}.") for app in app_names):
+            sys.modules.pop(mod, None)
+
+
+def _create_app_package(app_dir: Path, models_code: str, migration_code: str) -> None:
+    migrations_dir = app_dir / "migrations"
+    migrations_dir.mkdir(parents=True, exist_ok=True)
+    (app_dir / "__init__.py").write_text("", encoding="ascii")
+    (migrations_dir / "__init__.py").write_text("", encoding="ascii")
+    (app_dir / "models.py").write_text(models_code, encoding="ascii")
+    (migrations_dir / "0001_initial.py").write_text(migration_code, encoding="ascii")
 
 
 def _setup_multi_connection_projects(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> TortoiseConfig:
-    for mod in list(sys.modules):
-        if mod.startswith("app_c"):
-            sys.modules.pop(mod, None)
+    _cleanup_modules("app_c")
 
     _setup_cross_app_projects(tmp_path, monkeypatch)
 
-    app_c_dir = tmp_path / "app_c"
-    app_c_migrations = app_c_dir / "migrations"
-    app_c_migrations.mkdir(parents=True)
-    (app_c_dir / "__init__.py").write_text("", encoding="ascii")
-    (app_c_migrations / "__init__.py").write_text("", encoding="ascii")
-    (app_c_dir / "models.py").write_text(
-        "\n".join(
+    _create_app_package(
+        tmp_path / "app_c",
+        models_code="\n".join(
             [
                 "from tortoise import fields",
                 "from tortoise.models import Model",
@@ -33,10 +44,7 @@ def _setup_multi_connection_projects(
                 "",
             ]
         ),
-        encoding="ascii",
-    )
-    (app_c_migrations / "0001_initial.py").write_text(
-        "\n".join(
+        migration_code="\n".join(
             [
                 "from tortoise import fields, migrations",
                 "from tortoise.migrations import operations as ops",
@@ -54,7 +62,6 @@ def _setup_multi_connection_projects(
                 "",
             ]
         ),
-        encoding="ascii",
     )
 
     return TortoiseConfig(
@@ -100,9 +107,7 @@ async def test_plan_cross_app_dependency(tmp_path: Path, monkeypatch: pytest.Mon
     finally:
         await Tortoise.close_connections()
         await Tortoise._reset_apps()
-        for mod in list(sys.modules):
-            if mod.startswith(("app_a", "app_b")):
-                sys.modules.pop(mod, None)
+        _cleanup_modules("app_a", "app_b")
 
 
 @pytest.mark.asyncio
@@ -129,9 +134,7 @@ async def test_migrate_multi_connection_empty_targets(
     finally:
         await Tortoise.close_connections()
         await Tortoise._reset_apps()
-        for mod in list(sys.modules):
-            if mod.startswith(("app_a", "app_b", "app_c")):
-                sys.modules.pop(mod, None)
+        _cleanup_modules("app_a", "app_b", "app_c")
 
 
 @pytest.mark.asyncio
@@ -150,9 +153,7 @@ async def test_plan_multi_connection_empty_targets(
     finally:
         await Tortoise.close_connections()
         await Tortoise._reset_apps()
-        for mod in list(sys.modules):
-            if mod.startswith(("app_a", "app_b", "app_c")):
-                sys.modules.pop(mod, None)
+        _cleanup_modules("app_a", "app_b", "app_c")
 
 
 @pytest.mark.asyncio
@@ -173,17 +174,11 @@ async def test_migrate_accepts_dataclass_config() -> None:
 
 
 def _setup_cross_app_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TortoiseConfig:
-    for mod in list(sys.modules):
-        if mod.startswith(("app_a", "app_b")):
-            sys.modules.pop(mod, None)
+    _cleanup_modules("app_a", "app_b")
 
-    app_a_dir = tmp_path / "app_a"
-    app_a_migrations = app_a_dir / "migrations"
-    app_a_migrations.mkdir(parents=True)
-    (app_a_dir / "__init__.py").write_text("", encoding="ascii")
-    (app_a_migrations / "__init__.py").write_text("", encoding="ascii")
-    (app_a_dir / "models.py").write_text(
-        "\n".join(
+    _create_app_package(
+        tmp_path / "app_a",
+        models_code="\n".join(
             [
                 "from tortoise import fields",
                 "from tortoise.models import Model",
@@ -194,10 +189,7 @@ def _setup_cross_app_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
                 "",
             ]
         ),
-        encoding="ascii",
-    )
-    (app_a_migrations / "0001_initial.py").write_text(
-        "\n".join(
+        migration_code="\n".join(
             [
                 "from tortoise import fields, migrations",
                 "from tortoise.migrations import operations as ops",
@@ -216,16 +208,11 @@ def _setup_cross_app_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
                 "",
             ]
         ),
-        encoding="ascii",
     )
 
-    app_b_dir = tmp_path / "app_b"
-    app_b_migrations = app_b_dir / "migrations"
-    app_b_migrations.mkdir(parents=True)
-    (app_b_dir / "__init__.py").write_text("", encoding="ascii")
-    (app_b_migrations / "__init__.py").write_text("", encoding="ascii")
-    (app_b_dir / "models.py").write_text(
-        "\n".join(
+    _create_app_package(
+        tmp_path / "app_b",
+        models_code="\n".join(
             [
                 "from tortoise import fields",
                 "from tortoise.models import Model",
@@ -249,10 +236,7 @@ def _setup_cross_app_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
                 "",
             ]
         ),
-        encoding="ascii",
-    )
-    (app_b_migrations / "0001_initial.py").write_text(
-        "\n".join(
+        migration_code="\n".join(
             [
                 "from tortoise import fields, migrations",
                 "from tortoise.migrations import operations as ops",
@@ -271,7 +255,6 @@ def _setup_cross_app_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
                 "",
             ]
         ),
-        encoding="ascii",
     )
 
     monkeypatch.syspath_prepend(str(tmp_path))
@@ -316,9 +299,7 @@ async def test_sqlmigrate_cross_app_foreign_key_in_table_sql(
     finally:
         await Tortoise.close_connections()
         await Tortoise._reset_apps()
-        for mod in list(sys.modules):
-            if mod.startswith(("app_a", "app_b")):
-                sys.modules.pop(mod, None)
+        _cleanup_modules("app_a", "app_b")
 
 
 @pytest.mark.asyncio
@@ -339,6 +320,36 @@ async def test_migrate_cross_app_foreign_key(
     finally:
         await Tortoise.close_connections()
         await Tortoise._reset_apps()
-        for mod in list(sys.modules):
-            if mod.startswith(("app_a", "app_b")):
-                sys.modules.pop(mod, None)
+        _cleanup_modules("app_a", "app_b")
+
+
+@pytest.mark.asyncio
+async def test_migrate_multi_connection_target_exclusion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _setup_multi_connection_projects(tmp_path, monkeypatch)
+    recorded_targets: dict[str, list[str]] = {}
+    orig_migrate = MigrationExecutor.migrate
+
+    async def mock_migrate(
+        self: MigrationExecutor, targets: list[MigrationTarget], **kwargs: Any
+    ) -> None:
+        conn_name = next(
+            k for k in config.connections if Tortoise.get_connection(k) == self.connection
+        )
+        recorded_targets[conn_name] = [t.app_label for t in targets]
+        return await orig_migrate(self, targets, **kwargs)
+
+    monkeypatch.setattr(MigrationExecutor, "migrate", mock_migrate)
+    try:
+        await migrate(config=config, app_labels=["app_b", "app_c"])
+        assert "app_c" not in recorded_targets["default"]
+        assert "app_b" in recorded_targets["default"]
+        assert "app_a" not in recorded_targets["default"]
+        assert "app_b" not in recorded_targets["secondary"]
+        assert "app_a" not in recorded_targets["secondary"]
+        assert "app_c" in recorded_targets["secondary"]
+    finally:
+        await Tortoise.close_connections()
+        await Tortoise._reset_apps()
+        _cleanup_modules("app_a", "app_b", "app_c")
